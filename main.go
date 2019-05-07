@@ -3,10 +3,11 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
+	"strconv"
 	"sync"
 
+	"github.com/gorilla/mux"
 	"github.com/r3labs/sse"
 )
 
@@ -87,7 +88,7 @@ func (m *StudentData) AverageAllStudentsExams() {
 
 // GetAllStudents will create json out of the StudentData map
 func (m *StudentData) GetAllStudents(w http.ResponseWriter, req *http.Request) {
-	log.Printf("inc %v", req)
+	// log.Printf("inc %v", req)
 	m.mux.Lock()
 	jsonString, err := json.Marshal(m.v)
 	if err != nil {
@@ -101,8 +102,13 @@ func (m *StudentData) GetAllStudents(w http.ResponseWriter, req *http.Request) {
 // GetStudentTestsAndAverage will look up student by id
 func (m *StudentData) GetStudentTestsAndAverage(w http.ResponseWriter, req *http.Request) {
 	m.mux.Lock()
-	// s := m[req.URL]
-	fmt.Println(req.URL)
+	vars := mux.Vars(req)
+
+	jsonString, err := json.Marshal(m.v[vars["studentID"]])
+	if err != nil {
+		fmt.Println("error:", err)
+	}
+	w.Write(jsonString)
 	m.mux.Unlock()
 	return
 }
@@ -146,8 +152,45 @@ func (m *ExamData) AddExamScore(key string, score float64) {
 	return
 }
 
+// GetAllExams will arrange all exams in a slice, then respond slice as json
+func (m *ExamData) GetAllExams(w http.ResponseWriter, req *http.Request) {
+	m.mux.Lock()
+	var exams = make([]string, 1)
+	for e := range m.v {
+		exams = append(exams, e)
+	}
+	jsonString, err := json.Marshal(exams)
+	if err != nil {
+		fmt.Println("error", err)
+	}
+	w.Write(jsonString)
+	m.mux.Unlock()
+	return
+}
+
+// GetExamResults will look up scores of an examID then return the slice of
+// test scores as json
+func (m *ExamData) GetExamResults(w http.ResponseWriter, req *http.Request) {
+	m.mux.Lock()
+	vars := mux.Vars(req)
+
+	jsonString, err := json.Marshal(m.v[vars["examID"]].Scores)
+	if err != nil {
+		fmt.Println("error", err)
+	}
+	w.Write(jsonString)
+	m.mux.Unlock()
+	return
+}
+
+/*
+handleEvents will write all the SSE data into the StudentData and the
+ExamData maps. Since the SSE data comes in batches of 20, we will
+re-average the student test scores after every twenty items
+*/
 func handleEvents(events chan *sse.Event, s StudentData, e ExamData) {
 	var count int = 0
+	var examStr string
 	// convert event messages to Test struct
 	for {
 		msg := <-events
@@ -156,19 +199,19 @@ func handleEvents(events chan *sse.Event, s StudentData, e ExamData) {
 			fmt.Println("error:", err)
 		}
 
+		examStr = strconv.Itoa(t.ExamID)
 		// handle the exam
-		_, ok1 := e.GetExam(string(t.ExamID))
+		_, ok1 := e.GetExam(examStr)
 		if ok1 {
-			e.AddExamScore(string(t.ExamID), t.Score)
+			e.AddExamScore(examStr, t.Score)
 		} else {
-			e.SetExam(string(t.ExamID), Exam{[]float64{t.Score}})
+			e.SetExam(examStr, Exam{[]float64{t.Score}})
 		}
-
+		fmt.Println(t)
 		// handle the student
 		_, ok2 := s.GetStudent(t.StudentID)
 		if ok2 {
 			s.AddStudentTest(t.StudentID, Test{t.ExamID, t.Score})
-			fmt.Println(s.v[t.StudentID])
 		} else {
 			s.SetStudent(t.StudentID, Student{[]Test{Test{t.ExamID, t.Score}}, t.Score})
 		}
@@ -184,7 +227,6 @@ func handleEvents(events chan *sse.Event, s StudentData, e ExamData) {
 }
 
 func hello(w http.ResponseWriter, r *http.Request) {
-	fmt.Println(r)
 	w.Write([]byte("hello!"))
 }
 
@@ -199,9 +241,13 @@ func main() {
 	client.SubscribeChan("messages", events)
 	go handleEvents(events, s, e)
 
+	// Creating routes
+	r := mux.NewRouter()
+	r.HandleFunc("/students", s.GetAllStudents)
+	r.HandleFunc("/students/{studentID}", s.GetStudentTestsAndAverage)
+	r.HandleFunc("/exams", e.GetAllExams)
+	r.HandleFunc("/exams/{examID}", e.GetExamResults)
+
 	// establishing a server
-	http.HandleFunc("/", hello)
-	http.HandleFunc("/students", s.GetAllStudents)
-	http.HandleFunc("/students/:studentID", s.GetStudentTestsAndAverage)
-	http.ListenAndServe(":8080", nil)
+	http.ListenAndServe(":8080", r)
 }
