@@ -21,18 +21,18 @@ func main() {
 	events := make(chan *sse.Event)
 	client := sse.NewClient("http://live-test-scores.herokuapp.com/scores")
 	client.SubscribeChan("messages", events)
-	go handleEvents(events, s, e)
+	go HandleEvents(events, s, e)
 
-	// Creating routes
+	// Creating router
 	r := mux.NewRouter()
 
 	// Student Routes
-	r.HandleFunc("/students", GetAllStudents(s))
-	r.HandleFunc("/students/{studentID}", GetStudentTestsAndAverage(s))
+	r.HandleFunc("/students", GetAllStudents(s)).Methods("GET")
+	r.HandleFunc("/students/{studentID}", GetStudentTestsAndAverage(s)).Methods("GET")
 
 	// Exam Routes
-	r.HandleFunc("/exams", GetAllExams(e))
-	r.HandleFunc("/exams/{examID}", GetExamResults(e))
+	r.HandleFunc("/exams", GetAllExams(e)).Methods("GET")
+	r.HandleFunc("/exams/{examID}", GetExamResults(e)).Methods("GET")
 
 	// establishing a server
 	log.Fatal(http.ListenAndServe(":8080", r))
@@ -50,11 +50,11 @@ type TestEventData struct {
 }
 
 /*
-handleEvents will write all the SSE data into the StudentData and the
+HandleEvents will write all the SSE data into the StudentData and the
 ExamData maps. Since the SSE data comes in batches of 20, we will
 re-average the student test scores after every twenty items
 */
-func handleEvents(events chan *sse.Event, s *StudentData, e *ExamData) {
+func HandleEvents(events chan *sse.Event, s *StudentData, e *ExamData) {
 	var count int
 	var examStr string
 	// convert event messages to Test struct
