@@ -12,6 +12,10 @@ http://localhost:8080/exams/{examID}
 
 # Install
 
+If you do not have go installed, please follow the guide on the official docs
+
+https://golang.org/doc/install
+
 To install this first go this repo on to your local machine
 
 ``` go get github.com/bradenaa/test-scores ```
