@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"sync"
@@ -13,28 +14,28 @@ import (
 
 func main() {
 	// create Student data and Exam data for lookups
-	s := StudentData{v: make(map[string]Student)}
-	e := ExamData{v: make(map[string]Exam)}
+	s := &StudentData{v: make(map[string]Student)}
+	e := &ExamData{v: make(map[string]Exam)}
 
 	// handling event stream in a new channel
 	events := make(chan *sse.Event)
 	client := sse.NewClient("http://live-test-scores.herokuapp.com/scores")
 	client.SubscribeChan("messages", events)
-	go handleEvents(events, &s, &e)
+	go handleEvents(events, s, e)
 
 	// Creating routes
 	r := mux.NewRouter()
 
 	// Student Routes
-	r.HandleFunc("/students", s.GetAllStudents)
-	r.HandleFunc("/students/{studentID}", s.GetStudentTestsAndAverage)
+	r.HandleFunc("/students", GetAllStudents(s))
+	r.HandleFunc("/students/{studentID}", GetStudentTestsAndAverage(s))
 
 	// Exam Routes
-	r.HandleFunc("/exams", e.GetAllExams)
-	r.HandleFunc("/exams/{examID}", e.GetExamResults)
+	r.HandleFunc("/exams", GetAllExams(e))
+	r.HandleFunc("/exams/{examID}", GetExamResults(e))
 
 	// establishing a server
-	http.ListenAndServe(":8080", r)
+	log.Fatal(http.ListenAndServe(":8080", r))
 }
 
 // ++++++++++++++++++++++++++++++++++++++++++++++++++++++++
@@ -60,25 +61,26 @@ func handleEvents(events chan *sse.Event, s *StudentData, e *ExamData) {
 	for {
 		msg := <-events
 		var t TestEventData
+		// fmt.Printf("%s", msg.Data)s
 		if err := json.Unmarshal(msg.Data, &t); err != nil {
 			fmt.Println("error:", err)
 		}
 
 		examStr = strconv.Itoa(t.ExamID)
 		// handle the exam
-		_, ok1 := e.GetExam(examStr)
+		_, ok1 := GetExam(e, examStr)
 		if ok1 {
-			e.AddExamScore(examStr, t.Score)
+			AddExamScore(e, examStr, t.Score)
 		} else {
-			e.SetExam(examStr, Exam{[]float64{t.Score}})
+			SetExam(e, examStr, Exam{[]float64{t.Score}})
 		}
 
 		// handle the student
-		_, ok2 := s.GetStudent(t.StudentID)
+		_, ok2 := GetStudent(s, t.StudentID)
 		if ok2 {
-			s.AddStudentTest(t.StudentID, Test{t.ExamID, t.Score})
+			AddStudentTest(s, t.StudentID, Test{t.ExamID, t.Score})
 		} else {
-			s.SetStudent(t.StudentID, Student{[]Test{Test{t.ExamID, t.Score}}, t.Score})
+			SetStudent(s, t.StudentID, Student{[]Test{Test{t.ExamID, t.Score}}, t.Score})
 		}
 
 		// increment count
@@ -88,8 +90,8 @@ func handleEvents(events chan *sse.Event, s *StudentData, e *ExamData) {
 		// with every request
 		if count >= 20 {
 			count = 0
-			s.AverageAllStudentsExams()
-			s.UpdateStudentDataJSON()
+			AverageAllStudentsExams(s)
+			UpdateStudentDataJSON(s)
 		}
 	}
 }
@@ -119,7 +121,7 @@ type Test struct {
 }
 
 // GetStudent will return a student struct, on its key name
-func (m *StudentData) GetStudent(key string) (Student, bool) {
+func GetStudent(m *StudentData, key string) (Student, bool) {
 	m.mux.Lock()
 	defer m.mux.Unlock()
 	student, ok := m.v[key]
@@ -127,7 +129,7 @@ func (m *StudentData) GetStudent(key string) (Student, bool) {
 }
 
 // SetStudent will set a new student into StudentData
-func (m *StudentData) SetStudent(key string, val Student) {
+func SetStudent(m *StudentData, key string, val Student) {
 	m.mux.Lock()
 	m.v[key] = val
 	m.mux.Unlock()
@@ -135,7 +137,7 @@ func (m *StudentData) SetStudent(key string, val Student) {
 }
 
 // AddStudentTest will add a test to a students list of scores
-func (m *StudentData) AddStudentTest(key string, test Test) {
+func AddStudentTest(m *StudentData, key string, test Test) {
 	m.mux.Lock()
 	student := m.v[key]
 	newExams := append(student.Exams, test)
@@ -150,7 +152,7 @@ AverageAllStudentsExams will be called after the 20 event data points
 have accumulated. This will happen so that the averages get up to date
 after every SSE stream batch
 */
-func (m *StudentData) AverageAllStudentsExams() {
+func AverageAllStudentsExams(m *StudentData) {
 	m.mux.Lock()
 	var average float64
 	var sum float64
@@ -167,17 +169,9 @@ func (m *StudentData) AverageAllStudentsExams() {
 	return
 }
 
-// GetAllStudents will send the json []uint8 chars from student map
-func (m *StudentData) GetAllStudents(w http.ResponseWriter, req *http.Request) {
-	m.mux.Lock()
-	w.Write(m.json)
-	m.mux.Unlock()
-	return
-}
-
 // UpdateStudentDataJSON will update the uint8 information so that we won't have
 // to json.Marshal on every GetAllStudents Requests
-func (m *StudentData) UpdateStudentDataJSON() {
+func UpdateStudentDataJSON(m *StudentData) {
 	m.mux.Lock()
 	jsonString, err := json.Marshal(m.v)
 	if err != nil {
@@ -188,18 +182,30 @@ func (m *StudentData) UpdateStudentDataJSON() {
 	return
 }
 
-// GetStudentTestsAndAverage will look up student by id
-func (m *StudentData) GetStudentTestsAndAverage(w http.ResponseWriter, req *http.Request) {
-	m.mux.Lock()
-	vars := mux.Vars(req)
-
-	jsonString, err := json.Marshal(m.v[vars["studentID"]])
-	if err != nil {
-		fmt.Println("error:", err)
+// GetAllStudents will send the json []uint8 chars from student map
+func GetAllStudents(m *StudentData) http.HandlerFunc {
+	return func(w http.ResponseWriter, req *http.Request) {
+		m.mux.Lock()
+		w.Write(m.json)
+		m.mux.Unlock()
+		return
 	}
-	w.Write(jsonString)
-	m.mux.Unlock()
-	return
+}
+
+// GetStudentTestsAndAverage will look up student by id
+func GetStudentTestsAndAverage(m *StudentData) http.HandlerFunc {
+	return func(w http.ResponseWriter, req *http.Request) {
+		m.mux.Lock()
+		vars := mux.Vars(req)
+
+		jsonString, err := json.Marshal(m.v[vars["studentID"]])
+		if err != nil {
+			fmt.Println("error:", err)
+		}
+		w.Write(jsonString)
+		m.mux.Unlock()
+		return
+	}
 }
 
 // ++++++++++++++++++++++++++++++++++++++++++++++++++++++++
@@ -219,7 +225,7 @@ type Exam struct {
 }
 
 // GetExam is a method to return an Exam stuct from ExamData map
-func (m *ExamData) GetExam(key string) (Exam, bool) {
+func GetExam(m *ExamData, key string) (Exam, bool) {
 	m.mux.Lock()
 	defer m.mux.Unlock()
 	exam, ok := m.v[key]
@@ -227,7 +233,7 @@ func (m *ExamData) GetExam(key string) (Exam, bool) {
 }
 
 // SetExam is a method to set a new Exam in the ExamData map
-func (m *ExamData) SetExam(key string, val Exam) {
+func SetExam(m *ExamData, key string, val Exam) {
 	m.mux.Lock()
 	m.v[key] = val
 	m.mux.Unlock()
@@ -235,7 +241,7 @@ func (m *ExamData) SetExam(key string, val Exam) {
 }
 
 // AddExamScore is a method to add a new score to a given exam
-func (m *ExamData) AddExamScore(key string, score float64) {
+func AddExamScore(m *ExamData, key string, score float64) {
 	m.mux.Lock()
 	exam := m.v[key]
 	newScoreList := append(exam.Scores, score)
@@ -246,32 +252,36 @@ func (m *ExamData) AddExamScore(key string, score float64) {
 }
 
 // GetAllExams will arrange all exams in a slice, then respond slice as json
-func (m *ExamData) GetAllExams(w http.ResponseWriter, req *http.Request) {
-	m.mux.Lock()
-	var exams = make([]string, 0)
-	for e := range m.v {
-		exams = append(exams, e)
+func GetAllExams(m *ExamData) http.HandlerFunc {
+	return func(w http.ResponseWriter, req *http.Request) {
+		m.mux.Lock()
+		var exams = make([]string, 0)
+		for e := range m.v {
+			exams = append(exams, e)
+		}
+		jsonString, err := json.Marshal(exams)
+		if err != nil {
+			fmt.Println("error", err)
+		}
+		w.Write(jsonString)
+		m.mux.Unlock()
+		return
 	}
-	jsonString, err := json.Marshal(exams)
-	if err != nil {
-		fmt.Println("error", err)
-	}
-	w.Write(jsonString)
-	m.mux.Unlock()
-	return
 }
 
 // GetExamResults will look up scores of an examID then return the slice of
 // test scores as json
-func (m *ExamData) GetExamResults(w http.ResponseWriter, req *http.Request) {
-	m.mux.Lock()
-	vars := mux.Vars(req)
+func GetExamResults(m *ExamData) http.HandlerFunc {
+	return func(w http.ResponseWriter, req *http.Request) {
+		m.mux.Lock()
+		vars := mux.Vars(req)
 
-	jsonString, err := json.Marshal(m.v[vars["examID"]].Scores)
-	if err != nil {
-		fmt.Println("error", err)
+		jsonString, err := json.Marshal(m.v[vars["examID"]].Scores)
+		if err != nil {
+			fmt.Println("error", err)
+		}
+		w.Write(jsonString)
+		m.mux.Unlock()
+		return
 	}
-	w.Write(jsonString)
-	m.mux.Unlock()
-	return
 }
