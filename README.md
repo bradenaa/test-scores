@@ -16,14 +16,6 @@ To install this first go this repo on to your local machine
 
 ``` go get github.com/bradenaa/test-scores ```
 
-Now grab the gorilla mux dependency (if you don't have it already). This is a router to better handle some of the dynamic routes that take a request parameter
-
-``` go get github.com/gorilla/mux ```
-
-Lastly grab the SSE depency, which will create a new client connect to the SSE server at the heroku link above.
-
-``` go get github.com/r3labs/sse ```
-
 # Run
 
 Now we can run this by navigating to the project
@@ -39,3 +31,13 @@ Run the program
 ``` ./test-scores ```
 
 No you can vist any of the endpoints listed above to find the student or exam information
+
+# Test
+
+Unit tests are setup for the student data map, the exam data map, and the route handlers. If you make any changes to the project,and want to check if these are still working, run
+
+```go test```
+
+or for more details
+
+```go test -v```
