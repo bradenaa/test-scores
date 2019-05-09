@@ -61,23 +61,25 @@ func handleEvents(events chan *sse.Event, s *StudentData, e *ExamData) {
 	for {
 		msg := <-events
 		var t TestEventData
-		// fmt.Printf("%s", msg.Data)s
 		if err := json.Unmarshal(msg.Data, &t); err != nil {
 			fmt.Println("error:", err)
 		}
 
 		examStr = strconv.Itoa(t.ExamID)
-		// handle the exam
-		_, ok1 := GetExam(e, examStr)
-		if ok1 {
+		// Try to get the current exam by its ID. If it is found, then add the score to
+		// the that exam. Otherwise, create a new exam to the ExamData in memory
+		_, examFound := GetExam(e, examStr)
+		if examFound {
 			AddExamScore(e, examStr, t.Score)
 		} else {
 			SetExam(e, examStr, Exam{[]float64{t.Score}})
 		}
 
-		// handle the student
-		_, ok2 := GetStudent(s, t.StudentID)
-		if ok2 {
+		// Try to find the current student. If we find the student, then add
+		// a new test to that student in the Student Data in memory. Otherwise,
+		// Create a new Student and set that student in the Student Data in memory.
+		_, studentFound := GetStudent(s, t.StudentID)
+		if studentFound {
 			AddStudentTest(s, t.StudentID, Test{t.ExamID, t.Score})
 		} else {
 			SetStudent(s, t.StudentID, Student{[]Test{Test{t.ExamID, t.Score}}, t.Score})
@@ -85,9 +87,11 @@ func handleEvents(events chan *sse.Event, s *StudentData, e *ExamData) {
 
 		// increment count
 		count++
-		// handle last stream item by find all the new averages
-		// and updating json values, to prevent parsing student map
-		// with every request
+		// When the count is 20, we have reached the end of our stream batch, so
+		// time to do some cleaning up in memory. Re-average all of the exams scores,
+		// and also parse the Student Data map into []unit8 and store in memory, so we won't have
+		// to perform this operation with every request to "/students". The event stream,
+		// sends a batch about every 5 seconds.
 		if count >= 20 {
 			count = 0
 			AverageAllStudentsExams(s)

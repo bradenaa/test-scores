@@ -29,6 +29,10 @@ func SeedExam(e *ExamData) {
 	return
 }
 
+func RemoveIndex(s []float64, index int) []float64 {
+	return append(s[:index], s[index+1:]...)
+}
+
 func init() {
 	SeedStudent(s)
 	SeedExam(e)
@@ -245,9 +249,11 @@ func TestAddExamScore(t *testing.T) {
 	info, ok := e.v["10775"]
 
 	found := false
-	for _, score := range info.Scores {
+	positionFound := 0
+	for i, score := range info.Scores {
 		if score == 0.123456789 {
 			found = true
+			positionFound = i
 		}
 	}
 	if found != true {
@@ -258,4 +264,10 @@ func TestAddExamScore(t *testing.T) {
 		t.Errorf("map lookup returned result: got %v want %v", false, ok)
 	}
 
+	if found == true {
+		copy := e.v["10775"]
+		newCopyScoresSlice := RemoveIndex(copy.Scores, positionFound)
+		copy.Scores = newCopyScoresSlice
+		e.v["10775"] = copy
+	}
 }
