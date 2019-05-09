@@ -34,7 +34,7 @@ No you can vist any of the endpoints listed above to find the student or exam in
 
 # Test
 
-Unit tests are setup for the student data map, the exam data map, and the route handlers. If you make any changes to the project,and want to check if these are still working, run
+Unit tests are setup for the student data map methods, the exam data map methods, and the route handlers. Run the following if you make changes and want to check if these are still working.
 
 ```go test```
 
